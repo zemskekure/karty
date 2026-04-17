@@ -180,17 +180,26 @@
   sizeCanvas();
   window.addEventListener("resize", () => { sizeCanvas(); drawFrame(currentFrame); });
 
-  // Preload all frames. Images are cached as-is and drawn via canvas so we can
-  // resize cleanly and avoid flicker from swapping <img> src on every scroll tick.
+  // Preload all frames via fetch so we can measure exact transferred bytes.
+  // Images are cached as ImageBitmaps and drawn via canvas to avoid <img>
+  // src-swap flicker during scroll.
   const images = new Array(FRAME_COUNT);
   let loaded = 0;
   let currentFrame = 0;
+  let bytesTotal = 0;
+  const sizes = new Array(FRAME_COUNT);
+  const t0 = performance.now();
+
+  const fmtBytes = (n) => {
+    if (n > 1024 * 1024) return (n / 1024 / 1024).toFixed(2) + " MB";
+    if (n > 1024) return (n / 1024).toFixed(1) + " KB";
+    return n + " B";
+  };
 
   function drawFrame(idx) {
     const img = images[idx];
-    if (!img || !img.complete) return;
+    if (!img) return;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    // contain-fit draw
     const cw = canvas.width, ch = canvas.height;
     const ratio = Math.min(cw / img.width, ch / img.height);
     const w = img.width * ratio, h = img.height * ratio;
@@ -199,28 +208,54 @@
   }
 
   function onAllLoaded() {
+    const dt = ((performance.now() - t0) / 1000).toFixed(2);
+    const avg = bytesTotal / FRAME_COUNT;
+    console.log(
+      `%c[Pack360] sequence ready`,
+      "color:#e63329;font-weight:bold",
+      `\n  frames:    ${FRAME_COUNT}` +
+      `\n  bandwidth: ${fmtBytes(bytesTotal)} total` +
+      `\n  avg/frame: ${fmtBytes(avg)}` +
+      `\n  elapsed:   ${dt}s` +
+      `\n  throughput:~${fmtBytes(bytesTotal / parseFloat(dt))}/s`
+    );
+    console.table(
+      sizes.map((b, i) => ({ frame: i, file: FRAME_PATH(i).split("/").pop(), bytes: b }))
+    );
     loadingEl.classList.add("done");
     drawFrame(0);
     updateFromScroll();
   }
 
-  // Prioritise first frame so the stage isn't blank while the rest stream in
-  const first = new Image();
-  first.src = FRAME_PATH(0);
-  first.onload = () => { images[0] = first; drawFrame(0); bumpLoaded(); };
-
-  function bumpLoaded() {
+  function bumpLoaded(i, bytes) {
     loaded += 1;
+    sizes[i] = bytes;
+    bytesTotal += bytes;
     loadPctEl.textContent = Math.round((loaded / FRAME_COUNT) * 100) + "%";
+    console.log(
+      `[Pack360] ${String(i).padStart(3, "0")}/${FRAME_COUNT - 1}  ` +
+      `${FRAME_PATH(i).split("/").pop()}  ${fmtBytes(bytes)}  ` +
+      `(running total ${fmtBytes(bytesTotal)})`
+    );
     if (loaded === FRAME_COUNT) onAllLoaded();
   }
 
-  for (let i = 1; i < FRAME_COUNT; i++) {
-    const img = new Image();
-    img.onload = () => { images[i] = img; bumpLoaded(); };
-    img.onerror = () => { bumpLoaded(); }; // count errors so UI doesn't hang
-    img.src = FRAME_PATH(i);
+  async function loadFrame(i) {
+    try {
+      const res = await fetch(FRAME_PATH(i));
+      const blob = await res.blob();
+      const bmp = await createImageBitmap(blob);
+      images[i] = bmp;
+      if (i === 0) drawFrame(0); // show first frame ASAP
+      bumpLoaded(i, blob.size);
+    } catch (err) {
+      console.warn(`[Pack360] frame ${i} failed`, err);
+      bumpLoaded(i, 0);
+    }
   }
+
+  // Kick off all frames in parallel. Browser caps concurrency per-origin.
+  for (let i = 0; i < FRAME_COUNT; i++) loadFrame(i);
 
   // Scroll → frame mapping. Progress is measured against the scroll-scene's
   // scrollable range (its height minus one viewport, since the stage is sticky).
