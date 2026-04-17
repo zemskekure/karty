@@ -1,0 +1,351 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Sběratelské karty Ambiente — scrollový test</title>
+<style>
+  :root {
+    --bg: #f4efe7;
+    --fg: #1a1a1a;
+    --muted: #6b6b6b;
+    --accent: #e63329;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Inter", "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* The scroll container is tall; the sticky stage inside pins while it scrolls. */
+  .scroll-scene {
+    position: relative;
+    /* Height controls how much scroll distance is mapped to the full animation.
+       500vh = 4 full viewports of scroll map to 144 frames. */
+    height: 500vh;
+  }
+
+  .stage {
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    width: 100%;
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+  }
+
+  canvas {
+    width: min(80vmin, 720px);
+    height: min(80vmin, 720px);
+    display: block;
+  }
+
+  /* Overlay copy that fades with progress */
+  .overlay {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    display: grid;
+    grid-template-rows: 1fr auto 1fr;
+    padding: 6vh 8vw;
+  }
+
+  .headline {
+    align-self: end;
+    font-size: clamp(32px, 6vw, 72px);
+    line-height: 1.02;
+    letter-spacing: -0.02em;
+    font-weight: 700;
+    max-width: 16ch;
+  }
+  .headline em {
+    font-style: normal;
+    color: var(--accent);
+  }
+
+  .hint {
+    align-self: end;
+    justify-self: end;
+    font-size: 13px;
+    color: var(--muted);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  /* Intro + outro sections around the sticky scene */
+  section.panel {
+    min-height: 100vh;
+    display: grid;
+    place-items: center;
+    padding: 10vh 8vw;
+  }
+  section.panel h1 {
+    font-size: clamp(40px, 8vw, 96px);
+    letter-spacing: -0.03em;
+    line-height: 1;
+    margin: 0;
+    max-width: 18ch;
+    text-align: center;
+  }
+  section.panel p {
+    color: var(--muted);
+    max-width: 56ch;
+    text-align: center;
+    margin-top: 1.5em;
+    line-height: 1.6;
+  }
+
+  /* Debug progress bar (top of viewport) — flip display:none to hide */
+  .progress {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: rgba(0,0,0,0.08);
+    z-index: 10;
+  }
+  .progress > div {
+    height: 100%;
+    width: 0%;
+    background: var(--accent);
+    transform-origin: left;
+  }
+
+  .loading {
+    position: fixed;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    background: var(--bg);
+    z-index: 20;
+    transition: opacity .4s ease;
+    font-size: 14px;
+    color: var(--muted);
+    letter-spacing: 0.1em;
+  }
+  .loading.done { opacity: 0; pointer-events: none; }
+</style>
+</head>
+<body>
+
+<div class="progress"><div id="progressBar"></div></div>
+<div class="loading" id="loading">NAČÍTÁM SNÍMKY… <span id="loadPct">0%</span></div>
+
+<section class="panel">
+  <div>
+    <h1>Scrolluj a otoč balíček.</h1>
+    <p>Animace níže se řídí polohou scrollu. Dolů otáčíš dopředu, nahoru zpět — jako když přetahuješ časovou osu.</p>
+  </div>
+</section>
+
+<div class="scroll-scene" id="scene">
+  <div class="stage">
+    <canvas id="cv" width="720" height="720"></canvas>
+    <div class="overlay">
+      <div class="headline">Sběratelské karty <em>Ambiente</em>.</div>
+      <div class="hint">Posouvej ↕</div>
+    </div>
+  </div>
+</div>
+
+<section class="panel">
+  <div>
+    <h1>A je to.</h1>
+    <p>Snímky jsou 1:1 namapované na pozici scrollu uvnitř pinované sekce. Výšku <code>.scroll-scene</code> si uprav podle toho, jak dlouhé rolování chceš.</p>
+  </div>
+</section>
+
+<script>
+(() => {
+  const FRAME_COUNT = 144;
+  const FRAME_PATH = (i) => `frames/Pack360_1_${String(i).padStart(5, "0")}.png`;
+
+  const canvas = document.getElementById("cv");
+  const ctx = canvas.getContext("2d");
+  const scene = document.getElementById("scene");
+  const progressBar = document.getElementById("progressBar");
+  const loadingEl = document.getElementById("loading");
+  const loadPctEl = document.getElementById("loadPct");
+
+  // Crisp on HiDPI displays
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  function sizeCanvas() {
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = Math.round(rect.width * dpr);
+    canvas.height = Math.round(rect.height * dpr);
+  }
+  sizeCanvas();
+  window.addEventListener("resize", () => { sizeCanvas(); drawFrame(currentFrame); });
+
+  // Two-phase loader:
+  //   1. Eagerly fetch the first EAGER_COUNT frames so the page is interactive fast.
+  //   2. After that, demand-load frames near the current scroll position, and
+  //      let a low-priority background queue fill in the rest.
+  // The canvas always draws the nearest already-loaded frame, so scrubbing
+  // past unloaded frames degrades gracefully instead of going blank.
+  const EAGER_FRAC = 0.15;
+  const EAGER_COUNT = Math.max(1, Math.ceil(FRAME_COUNT * EAGER_FRAC));
+  const PREFETCH_AHEAD = 12; // frames in the scroll direction
+  const PREFETCH_BEHIND = 4;
+
+  const images = new Array(FRAME_COUNT);
+  const inflight = new Array(FRAME_COUNT).fill(false);
+  const sizes = new Array(FRAME_COUNT);
+  let loaded = 0;
+  let currentFrame = 0;
+  let bytesTotal = 0;
+  let eagerDone = false;
+  let summaryLogged = false;
+  const t0 = performance.now();
+
+  const fmtBytes = (n) => {
+    if (n > 1024 * 1024) return (n / 1024 / 1024).toFixed(2) + " MB";
+    if (n > 1024) return (n / 1024).toFixed(1) + " KB";
+    return n + " B";
+  };
+
+  function nearestLoaded(idx) {
+    if (images[idx]) return idx;
+    for (let d = 1; d < FRAME_COUNT; d++) {
+      if (idx - d >= 0 && images[idx - d]) return idx - d;
+      if (idx + d < FRAME_COUNT && images[idx + d]) return idx + d;
+    }
+    return -1;
+  }
+
+  function drawFrame(idx) {
+    const pick = nearestLoaded(idx);
+    if (pick < 0) return;
+    const img = images[pick];
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const cw = canvas.width, ch = canvas.height;
+    const ratio = Math.min(cw / img.width, ch / img.height);
+    const w = img.width * ratio, h = img.height * ratio;
+    ctx.drawImage(img, (cw - w) / 2, (ch - h) / 2, w, h);
+    currentFrame = idx;
+  }
+
+  function bumpLoaded(i, bytes) {
+    loaded += 1;
+    sizes[i] = bytes;
+    bytesTotal += bytes;
+    loadPctEl.textContent = Math.round((loaded / FRAME_COUNT) * 100) + "%";
+    console.log(
+      `[Pack360] ${String(i).padStart(3, "0")}/${FRAME_COUNT - 1}  ` +
+      `${FRAME_PATH(i).split("/").pop()}  ${fmtBytes(bytes)}  ` +
+      `(total ${fmtBytes(bytesTotal)}, ${loaded}/${FRAME_COUNT})`
+    );
+    if (loaded === FRAME_COUNT && !summaryLogged) {
+      summaryLogged = true;
+      const dt = ((performance.now() - t0) / 1000).toFixed(2);
+      console.log(
+        `%c[Pack360] sequence fully loaded`,
+        "color:#e63329;font-weight:bold",
+        `\n  frames:    ${FRAME_COUNT}` +
+        `\n  bandwidth: ${fmtBytes(bytesTotal)} total` +
+        `\n  avg/frame: ${fmtBytes(bytesTotal / FRAME_COUNT)}` +
+        `\n  elapsed:   ${dt}s`
+      );
+      console.table(
+        sizes.map((b, i) => ({ frame: i, file: FRAME_PATH(i).split("/").pop(), bytes: b }))
+      );
+    }
+  }
+
+  async function loadFrame(i) {
+    if (images[i] || inflight[i]) return;
+    inflight[i] = true;
+    try {
+      const res = await fetch(FRAME_PATH(i));
+      const blob = await res.blob();
+      const bmp = await createImageBitmap(blob);
+      images[i] = bmp;
+      bumpLoaded(i, blob.size);
+      // If we just filled the slot the user is currently on, repaint.
+      if (Math.abs(i - currentFrame) <= 1) drawFrame(currentFrame);
+    } catch (err) {
+      console.warn(`[Pack360] frame ${i} failed`, err);
+      inflight[i] = false;
+      bumpLoaded(i, 0);
+    }
+  }
+
+  // --- Phase 1: eager load ---------------------------------------------------
+  async function eagerLoad() {
+    const tasks = [];
+    for (let i = 0; i < EAGER_COUNT; i++) tasks.push(loadFrame(i));
+    // Paint the first frame as soon as it arrives (don't wait for the batch)
+    loadFrame(0).then(() => drawFrame(0));
+    await Promise.all(tasks);
+    eagerDone = true;
+    loadingEl.classList.add("done");
+    console.log(
+      `%c[Pack360] eager phase done — ${EAGER_COUNT} frames, ${fmtBytes(bytesTotal)}`,
+      "color:#e63329;font-weight:bold"
+    );
+    updateFromScroll();
+    requestPrefetch(currentFrame, 1);
+    scheduleBackgroundFill();
+  }
+
+  // --- Phase 2: scroll-driven prefetch --------------------------------------
+  let lastIdx = 0;
+  function requestPrefetch(idx, direction) {
+    const behind = Math.max(0, idx - PREFETCH_BEHIND);
+    const ahead = Math.min(FRAME_COUNT - 1, idx + PREFETCH_AHEAD);
+    // Walk outward from idx so the nearest frames queue first.
+    for (let d = 0; d <= Math.max(idx - behind, ahead - idx); d++) {
+      const fwd = direction >= 0 ? idx + d : idx - d;
+      const bwd = direction >= 0 ? idx - d : idx + d;
+      if (fwd >= behind && fwd <= ahead) loadFrame(fwd);
+      if (bwd >= behind && bwd <= ahead) loadFrame(bwd);
+    }
+  }
+
+  // --- Phase 3: idle background fill ----------------------------------------
+  const idle = window.requestIdleCallback || ((cb) => setTimeout(() => cb({ timeRemaining: () => 10 }), 200));
+  function scheduleBackgroundFill() {
+    idle((deadline) => {
+      // Pick the unloaded frame closest to where the user is right now.
+      let best = -1, bestDist = Infinity;
+      for (let i = 0; i < FRAME_COUNT; i++) {
+        if (images[i] || inflight[i]) continue;
+        const d = Math.abs(i - currentFrame);
+        if (d < bestDist) { bestDist = d; best = i; }
+      }
+      if (best < 0) return; // everything loaded
+      loadFrame(best).finally(scheduleBackgroundFill);
+    });
+  }
+
+  eagerLoad();
+
+  // Scroll → frame mapping. Progress is measured against the scroll-scene's
+  // scrollable range (its height minus one viewport, since the stage is sticky).
+  let ticking = false;
+  function updateFromScroll() {
+    const rect = scene.getBoundingClientRect();
+    const scrollable = scene.offsetHeight - window.innerHeight;
+    const passed = Math.min(Math.max(-rect.top, 0), scrollable);
+    const p = scrollable > 0 ? passed / scrollable : 0;
+    const idx = Math.min(FRAME_COUNT - 1, Math.max(0, Math.round(p * (FRAME_COUNT - 1))));
+    if (idx !== currentFrame) {
+      const direction = Math.sign(idx - currentFrame) || 1;
+      drawFrame(idx);
+      if (eagerDone) requestPrefetch(idx, direction);
+    }
+    progressBar.style.width = (p * 100).toFixed(2) + "%";
+  }
+  window.addEventListener("scroll", () => {
+    if (!ticking) {
+      requestAnimationFrame(() => { updateFromScroll(); ticking = false; });
+      ticking = true;
+    }
+  }, { passive: true });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(unzip -l Pack360_ImSeq-20260417T074233Z-3-001.zip)",
+      "Bash(sips -g hasAlpha -g format Pack360_ImSeq/Pack360_1_00000.png)",
+      "Bash(curl -sI http://localhost:8765/index.html)",
+      "Bash(curl -sI http://localhost:8765/frames/Pack360_1_00000.png)",
+      "Bash(gh auth *)",
+      "Bash(git -c commit.gpgsign=false commit -m ' *)",
+      "Bash(git add *)",
+      "Bash(gh repo *)",
+      "Bash(curl -sI http://localhost:5176/)",
+      "Bash(curl -sI http://localhost:5176/frames/Pack360_1_00000.png)",
+      "Bash(rm /Users/jancervenka/Projects/karty/frontend/public/frames)",
+      "Bash(npm run *)",
+      "Bash(ln -sfn /Users/jancervenka/Projects/karty/frames /Users/jancervenka/Projects/karty/frontend/public/frames)"
+    ]
+  }
+}
