@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Sběratelské karty Ambiente — scrollový test</title>
+<style>
+  :root {
+    --bg: #f4efe7;
+    --fg: #1a1a1a;
+    --muted: #6b6b6b;
+    --accent: #e63329;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Inter", "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* The scroll container is tall; the sticky stage inside pins while it scrolls. */
+  .scroll-scene {
+    position: relative;
+    /* Height controls how much scroll distance is mapped to the full animation.
+       500vh = 4 full viewports of scroll map to 144 frames. */
+    height: 500vh;
+  }
+
+  .stage {
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    width: 100%;
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+  }
+
+  canvas {
+    width: min(80vmin, 720px);
+    height: min(80vmin, 720px);
+    display: block;
+  }
+
+  /* Overlay copy that fades with progress */
+  .overlay {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    display: grid;
+    grid-template-rows: 1fr auto 1fr;
+    padding: 6vh 8vw;
+  }
+
+  .headline {
+    align-self: end;
+    font-size: clamp(32px, 6vw, 72px);
+    line-height: 1.02;
+    letter-spacing: -0.02em;
+    font-weight: 700;
+    max-width: 16ch;
+  }
+  .headline em {
+    font-style: normal;
+    color: var(--accent);
+  }
+
+  .hint {
+    align-self: end;
+    justify-self: end;
+    font-size: 13px;
+    color: var(--muted);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  /* Intro + outro sections around the sticky scene */
+  section.panel {
+    min-height: 100vh;
+    display: grid;
+    place-items: center;
+    padding: 10vh 8vw;
+  }
+  section.panel h1 {
+    font-size: clamp(40px, 8vw, 96px);
+    letter-spacing: -0.03em;
+    line-height: 1;
+    margin: 0;
+    max-width: 18ch;
+    text-align: center;
+  }
+  section.panel p {
+    color: var(--muted);
+    max-width: 56ch;
+    text-align: center;
+    margin-top: 1.5em;
+    line-height: 1.6;
+  }
+
+  /* Debug progress bar (top of viewport) — flip display:none to hide */
+  .progress {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: rgba(0,0,0,0.08);
+    z-index: 10;
+  }
+  .progress > div {
+    height: 100%;
+    width: 0%;
+    background: var(--accent);
+    transform-origin: left;
+  }
+
+  .loading {
+    position: fixed;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    background: var(--bg);
+    z-index: 20;
+    transition: opacity .4s ease;
+    font-size: 14px;
+    color: var(--muted);
+    letter-spacing: 0.1em;
+  }
+  .loading.done { opacity: 0; pointer-events: none; }
+</style>
+</head>
+<body>
+
+<div class="progress"><div id="progressBar"></div></div>
+<div class="loading" id="loading">NAČÍTÁM SNÍMKY… <span id="loadPct">0%</span></div>
+
+<section class="panel">
+  <div>
+    <h1>Scrolluj a otoč balíček.</h1>
+    <p>Animace níže se řídí polohou scrollu. Dolů otáčíš dopředu, nahoru zpět — jako když přetahuješ časovou osu.</p>
+  </div>
+</section>
+
+<div class="scroll-scene" id="scene">
+  <div class="stage">
+    <canvas id="cv" width="720" height="720"></canvas>
+    <div class="overlay">
+      <div class="headline">Sběratelské karty <em>Ambiente</em>.</div>
+      <div class="hint">Posouvej ↕</div>
+    </div>
+  </div>
+</div>
+
+<section class="panel">
+  <div>
+    <h1>A je to.</h1>
+    <p>Snímky jsou 1:1 namapované na pozici scrollu uvnitř pinované sekce. Výšku <code>.scroll-scene</code> si uprav podle toho, jak dlouhé rolování chceš.</p>
+  </div>
+</section>
+
+<script>
+(() => {
+  const FRAME_COUNT = 144;
+  const FRAME_PATH = (i) => `frames/Pack360_1_${String(i).padStart(5, "0")}.png`;
+
+  const canvas = document.getElementById("cv");
+  const ctx = canvas.getContext("2d");
+  const scene = document.getElementById("scene");
+  const progressBar = document.getElementById("progressBar");
+  const loadingEl = document.getElementById("loading");
+  const loadPctEl = document.getElementById("loadPct");
+
+  // Crisp on HiDPI displays
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  function sizeCanvas() {
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = Math.round(rect.width * dpr);
+    canvas.height = Math.round(rect.height * dpr);
+  }
+  sizeCanvas();
+  window.addEventListener("resize", () => { sizeCanvas(); drawFrame(currentFrame); });
+
+  // Preload all frames. Images are cached as-is and drawn via canvas so we can
+  // resize cleanly and avoid flicker from swapping <img> src on every scroll tick.
+  const images = new Array(FRAME_COUNT);
+  let loaded = 0;
+  let currentFrame = 0;
+
+  function drawFrame(idx) {
+    const img = images[idx];
+    if (!img || !img.complete) return;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    // contain-fit draw
+    const cw = canvas.width, ch = canvas.height;
+    const ratio = Math.min(cw / img.width, ch / img.height);
+    const w = img.width * ratio, h = img.height * ratio;
+    ctx.drawImage(img, (cw - w) / 2, (ch - h) / 2, w, h);
+    currentFrame = idx;
+  }
+
+  function onAllLoaded() {
+    loadingEl.classList.add("done");
+    drawFrame(0);
+    updateFromScroll();
+  }
+
+  // Prioritise first frame so the stage isn't blank while the rest stream in
+  const first = new Image();
+  first.src = FRAME_PATH(0);
+  first.onload = () => { images[0] = first; drawFrame(0); bumpLoaded(); };
+
+  function bumpLoaded() {
+    loaded += 1;
+    loadPctEl.textContent = Math.round((loaded / FRAME_COUNT) * 100) + "%";
+    if (loaded === FRAME_COUNT) onAllLoaded();
+  }
+
+  for (let i = 1; i < FRAME_COUNT; i++) {
+    const img = new Image();
+    img.onload = () => { images[i] = img; bumpLoaded(); };
+    img.onerror = () => { bumpLoaded(); }; // count errors so UI doesn't hang
+    img.src = FRAME_PATH(i);
+  }
+
+  // Scroll → frame mapping. Progress is measured against the scroll-scene's
+  // scrollable range (its height minus one viewport, since the stage is sticky).
+  let ticking = false;
+  function updateFromScroll() {
+    const rect = scene.getBoundingClientRect();
+    const scrollable = scene.offsetHeight - window.innerHeight;
+    // How far past the top of the scene we are, clamped to [0, scrollable]
+    const passed = Math.min(Math.max(-rect.top, 0), scrollable);
+    const p = scrollable > 0 ? passed / scrollable : 0;
+    const idx = Math.min(FRAME_COUNT - 1, Math.max(0, Math.round(p * (FRAME_COUNT - 1))));
+    if (idx !== currentFrame) drawFrame(idx);
+    progressBar.style.width = (p * 100).toFixed(2) + "%";
+  }
+  window.addEventListener("scroll", () => {
+    if (!ticking) {
+      requestAnimationFrame(() => { updateFromScroll(); ticking = false; });
+      ticking = true;
+    }
+  }, { passive: true });
+})();
+</script>
+</body>
+</html>
