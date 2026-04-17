@@ -180,14 +180,25 @@
   sizeCanvas();
   window.addEventListener("resize", () => { sizeCanvas(); drawFrame(currentFrame); });
 
-  // Preload all frames via fetch so we can measure exact transferred bytes.
-  // Images are cached as ImageBitmaps and drawn via canvas to avoid <img>
-  // src-swap flicker during scroll.
+  // Two-phase loader:
+  //   1. Eagerly fetch the first EAGER_COUNT frames so the page is interactive fast.
+  //   2. After that, demand-load frames near the current scroll position, and
+  //      let a low-priority background queue fill in the rest.
+  // The canvas always draws the nearest already-loaded frame, so scrubbing
+  // past unloaded frames degrades gracefully instead of going blank.
+  const EAGER_FRAC = 0.15;
+  const EAGER_COUNT = Math.max(1, Math.ceil(FRAME_COUNT * EAGER_FRAC));
+  const PREFETCH_AHEAD = 12; // frames in the scroll direction
+  const PREFETCH_BEHIND = 4;
+
   const images = new Array(FRAME_COUNT);
+  const inflight = new Array(FRAME_COUNT).fill(false);
+  const sizes = new Array(FRAME_COUNT);
   let loaded = 0;
   let currentFrame = 0;
   let bytesTotal = 0;
-  const sizes = new Array(FRAME_COUNT);
+  let eagerDone = false;
+  let summaryLogged = false;
   const t0 = performance.now();
 
   const fmtBytes = (n) => {
@@ -196,35 +207,25 @@
     return n + " B";
   };
 
+  function nearestLoaded(idx) {
+    if (images[idx]) return idx;
+    for (let d = 1; d < FRAME_COUNT; d++) {
+      if (idx - d >= 0 && images[idx - d]) return idx - d;
+      if (idx + d < FRAME_COUNT && images[idx + d]) return idx + d;
+    }
+    return -1;
+  }
+
   function drawFrame(idx) {
-    const img = images[idx];
-    if (!img) return;
+    const pick = nearestLoaded(idx);
+    if (pick < 0) return;
+    const img = images[pick];
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     const cw = canvas.width, ch = canvas.height;
     const ratio = Math.min(cw / img.width, ch / img.height);
     const w = img.width * ratio, h = img.height * ratio;
     ctx.drawImage(img, (cw - w) / 2, (ch - h) / 2, w, h);
     currentFrame = idx;
-  }
-
-  function onAllLoaded() {
-    const dt = ((performance.now() - t0) / 1000).toFixed(2);
-    const avg = bytesTotal / FRAME_COUNT;
-    console.log(
-      `%c[Pack360] sequence ready`,
-      "color:#e63329;font-weight:bold",
-      `\n  frames:    ${FRAME_COUNT}` +
-      `\n  bandwidth: ${fmtBytes(bytesTotal)} total` +
-      `\n  avg/frame: ${fmtBytes(avg)}` +
-      `\n  elapsed:   ${dt}s` +
-      `\n  throughput:~${fmtBytes(bytesTotal / parseFloat(dt))}/s`
-    );
-    console.table(
-      sizes.map((b, i) => ({ frame: i, file: FRAME_PATH(i).split("/").pop(), bytes: b }))
-    );
-    loadingEl.classList.add("done");
-    drawFrame(0);
-    updateFromScroll();
   }
 
   function bumpLoaded(i, bytes) {
@@ -235,27 +236,92 @@
     console.log(
       `[Pack360] ${String(i).padStart(3, "0")}/${FRAME_COUNT - 1}  ` +
       `${FRAME_PATH(i).split("/").pop()}  ${fmtBytes(bytes)}  ` +
-      `(running total ${fmtBytes(bytesTotal)})`
+      `(total ${fmtBytes(bytesTotal)}, ${loaded}/${FRAME_COUNT})`
     );
-    if (loaded === FRAME_COUNT) onAllLoaded();
+    if (loaded === FRAME_COUNT && !summaryLogged) {
+      summaryLogged = true;
+      const dt = ((performance.now() - t0) / 1000).toFixed(2);
+      console.log(
+        `%c[Pack360] sequence fully loaded`,
+        "color:#e63329;font-weight:bold",
+        `\n  frames:    ${FRAME_COUNT}` +
+        `\n  bandwidth: ${fmtBytes(bytesTotal)} total` +
+        `\n  avg/frame: ${fmtBytes(bytesTotal / FRAME_COUNT)}` +
+        `\n  elapsed:   ${dt}s`
+      );
+      console.table(
+        sizes.map((b, i) => ({ frame: i, file: FRAME_PATH(i).split("/").pop(), bytes: b }))
+      );
+    }
   }
 
   async function loadFrame(i) {
+    if (images[i] || inflight[i]) return;
+    inflight[i] = true;
     try {
       const res = await fetch(FRAME_PATH(i));
       const blob = await res.blob();
       const bmp = await createImageBitmap(blob);
       images[i] = bmp;
-      if (i === 0) drawFrame(0); // show first frame ASAP
       bumpLoaded(i, blob.size);
+      // If we just filled the slot the user is currently on, repaint.
+      if (Math.abs(i - currentFrame) <= 1) drawFrame(currentFrame);
     } catch (err) {
       console.warn(`[Pack360] frame ${i} failed`, err);
+      inflight[i] = false;
       bumpLoaded(i, 0);
     }
   }
 
-  // Kick off all frames in parallel. Browser caps concurrency per-origin.
-  for (let i = 0; i < FRAME_COUNT; i++) loadFrame(i);
+  // --- Phase 1: eager load ---------------------------------------------------
+  async function eagerLoad() {
+    const tasks = [];
+    for (let i = 0; i < EAGER_COUNT; i++) tasks.push(loadFrame(i));
+    // Paint the first frame as soon as it arrives (don't wait for the batch)
+    loadFrame(0).then(() => drawFrame(0));
+    await Promise.all(tasks);
+    eagerDone = true;
+    loadingEl.classList.add("done");
+    console.log(
+      `%c[Pack360] eager phase done — ${EAGER_COUNT} frames, ${fmtBytes(bytesTotal)}`,
+      "color:#e63329;font-weight:bold"
+    );
+    updateFromScroll();
+    requestPrefetch(currentFrame, 1);
+    scheduleBackgroundFill();
+  }
+
+  // --- Phase 2: scroll-driven prefetch --------------------------------------
+  let lastIdx = 0;
+  function requestPrefetch(idx, direction) {
+    const behind = Math.max(0, idx - PREFETCH_BEHIND);
+    const ahead = Math.min(FRAME_COUNT - 1, idx + PREFETCH_AHEAD);
+    // Walk outward from idx so the nearest frames queue first.
+    for (let d = 0; d <= Math.max(idx - behind, ahead - idx); d++) {
+      const fwd = direction >= 0 ? idx + d : idx - d;
+      const bwd = direction >= 0 ? idx - d : idx + d;
+      if (fwd >= behind && fwd <= ahead) loadFrame(fwd);
+      if (bwd >= behind && bwd <= ahead) loadFrame(bwd);
+    }
+  }
+
+  // --- Phase 3: idle background fill ----------------------------------------
+  const idle = window.requestIdleCallback || ((cb) => setTimeout(() => cb({ timeRemaining: () => 10 }), 200));
+  function scheduleBackgroundFill() {
+    idle((deadline) => {
+      // Pick the unloaded frame closest to where the user is right now.
+      let best = -1, bestDist = Infinity;
+      for (let i = 0; i < FRAME_COUNT; i++) {
+        if (images[i] || inflight[i]) continue;
+        const d = Math.abs(i - currentFrame);
+        if (d < bestDist) { bestDist = d; best = i; }
+      }
+      if (best < 0) return; // everything loaded
+      loadFrame(best).finally(scheduleBackgroundFill);
+    });
+  }
+
+  eagerLoad();
 
   // Scroll → frame mapping. Progress is measured against the scroll-scene's
   // scrollable range (its height minus one viewport, since the stage is sticky).
@@ -263,11 +329,14 @@
   function updateFromScroll() {
     const rect = scene.getBoundingClientRect();
     const scrollable = scene.offsetHeight - window.innerHeight;
-    // How far past the top of the scene we are, clamped to [0, scrollable]
     const passed = Math.min(Math.max(-rect.top, 0), scrollable);
     const p = scrollable > 0 ? passed / scrollable : 0;
     const idx = Math.min(FRAME_COUNT - 1, Math.max(0, Math.round(p * (FRAME_COUNT - 1))));
-    if (idx !== currentFrame) drawFrame(idx);
+    if (idx !== currentFrame) {
+      const direction = Math.sign(idx - currentFrame) || 1;
+      drawFrame(idx);
+      if (eagerDone) requestPrefetch(idx, direction);
+    }
     progressBar.style.width = (p * 100).toFixed(2) + "%";
   }
   window.addEventListener("scroll", () => {
