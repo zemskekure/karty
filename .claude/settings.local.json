@@ -13,7 +13,15 @@
       "Bash(curl -sI http://localhost:5176/frames/Pack360_1_00000.png)",
       "Bash(rm /Users/jancervenka/Projects/karty/frontend/public/frames)",
       "Bash(npm run *)",
-      "Bash(ln -sfn /Users/jancervenka/Projects/karty/frames /Users/jancervenka/Projects/karty/frontend/public/frames)"
+      "Bash(ln -sfn /Users/jancervenka/Projects/karty/frames /Users/jancervenka/Projects/karty/frontend/public/frames)",
+      "Bash(git push *)",
+      "Bash(curl -sI https://zemskekure.github.io/karty/)",
+      "Bash(curl -s https://zemskekure.github.io/karty/)",
+      "Bash(gh api *)",
+      "Bash(lsof -iTCP -sTCP:LISTEN -P -n)",
+      "Bash(curl -sL -o /tmp/libwebp.tar.gz \"https://storage.googleapis.com/downloads.webmproject.org/releases/webp/libwebp-1.5.0-mac-arm64.tar.gz\")",
+      "Bash(tar xzf *)",
+      "Bash(/tmp/libwebp/bin/cwebp -version)"
     ]
   }
 }

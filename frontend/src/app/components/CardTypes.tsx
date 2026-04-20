@@ -1,6 +1,6 @@
-import img09Pul from "figma:asset/f19669c960f98bb05b3b8252f49f44887097b6f5.png";
-import img02Acz from "figma:asset/b84fb334be93df64d75c215b19d5f9d6f2d5bfc6.png";
-import img05KarpHolo from "figma:asset/89a7725044543d01ba114f3c97289aa8a7f27626.png";
+import img09Pul from "figma:asset/f19669c960f98bb05b3b8252f49f44887097b6f5.webp";
+import img02Acz from "figma:asset/b84fb334be93df64d75c215b19d5f9d6f2d5bfc6.webp";
+import img05KarpHolo from "figma:asset/89a7725044543d01ba114f3c97289aa8a7f27626.webp";
 import { AmbienteLogo } from "./AmbienteLogo";
 
 const cardTypes = [

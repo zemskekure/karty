@@ -1,4 +1,4 @@
-import imgRectangle from "figma:asset/2c1ac18706b11fdc388c5c050b6f11cea4308374.png";
+import imgRectangle from "figma:asset/2c1ac18706b11fdc388c5c050b6f11cea4308374.webp";
 import { AmbienteLogo } from "./AmbienteLogo";
 
 const locations = [

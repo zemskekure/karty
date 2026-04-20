@@ -1,13 +1,13 @@
 import { useState, useCallback } from "react";
-import img03Kan from "figma:asset/4d90e00b7580436518b22cd8b29dbde6466bcb63.png";
-import img02Acz from "figma:asset/b84fb334be93df64d75c215b19d5f9d6f2d5bfc6.png";
-import img09Pul from "figma:asset/f19669c960f98bb05b3b8252f49f44887097b6f5.png";
-import img04Pca from "figma:asset/95b807f0a6629a8473d0a5fcd0968a90a760a70d.png";
-import img01Sav from "figma:asset/15b4d3c8465ba8cb06f709e0a2f92eb5ef85f967.png";
-import img08Bok from "figma:asset/47f6a42dd35ec0d7e51104829607d960649b2b83.png";
-import img10Ama from "figma:asset/5fa781cdc9c23f0e22fd5ab1ecb1f6d651d57b01.png";
-import img07Ces from "figma:asset/2bb8e73a2052ae79fe9c7e6c3c269da063403800.png";
-import img05KarpHolo from "figma:asset/89a7725044543d01ba114f3c97289aa8a7f27626.png";
+import img03Kan from "figma:asset/4d90e00b7580436518b22cd8b29dbde6466bcb63.webp";
+import img02Acz from "figma:asset/b84fb334be93df64d75c215b19d5f9d6f2d5bfc6.webp";
+import img09Pul from "figma:asset/f19669c960f98bb05b3b8252f49f44887097b6f5.webp";
+import img04Pca from "figma:asset/95b807f0a6629a8473d0a5fcd0968a90a760a70d.webp";
+import img01Sav from "figma:asset/15b4d3c8465ba8cb06f709e0a2f92eb5ef85f967.webp";
+import img08Bok from "figma:asset/47f6a42dd35ec0d7e51104829607d960649b2b83.webp";
+import img10Ama from "figma:asset/5fa781cdc9c23f0e22fd5ab1ecb1f6d651d57b01.webp";
+import img07Ces from "figma:asset/2bb8e73a2052ae79fe9c7e6c3c269da063403800.webp";
+import img05KarpHolo from "figma:asset/89a7725044543d01ba114f3c97289aa8a7f27626.webp";
 import { AmbienteLogo } from "./AmbienteLogo";
 
 const allCards = [

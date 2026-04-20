@@ -7,7 +7,7 @@ const PREFETCH_BEHIND = 4;
 // Use Vite's base so the paths resolve both at "/" in dev and "/karty/" on Pages.
 const BASE = import.meta.env.BASE_URL;
 const framePath = (i: number) =>
-  `${BASE}frames/Pack360_1_${String(i).padStart(5, "0")}.png`;
+  `${BASE}frames/Pack360_1_${String(i).padStart(5, "0")}.webp`;
 
 type Props = {
   // 0 → 1 — position along the rotation sequence

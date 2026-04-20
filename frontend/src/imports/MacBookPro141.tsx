@@ -1,15 +1,15 @@
 import svgPaths from "./svg-yz6ef4796w";
-import imgGeminiGeneratedImageFco6Fjfco6Fjfco61 from "figma:asset/4125efcb87214d63a7c5ebc60d3e899d2a812e8d.png";
-import img03Kan1 from "figma:asset/4d90e00b7580436518b22cd8b29dbde6466bcb63.png";
-import img02Acz1 from "figma:asset/b84fb334be93df64d75c215b19d5f9d6f2d5bfc6.png";
-import img09Pul1 from "figma:asset/f19669c960f98bb05b3b8252f49f44887097b6f5.png";
-import img04Pca1 from "figma:asset/95b807f0a6629a8473d0a5fcd0968a90a760a70d.png";
-import img01Sav1 from "figma:asset/15b4d3c8465ba8cb06f709e0a2f92eb5ef85f967.png";
-import img08Bok1 from "figma:asset/47f6a42dd35ec0d7e51104829607d960649b2b83.png";
-import img10Ama1 from "figma:asset/5fa781cdc9c23f0e22fd5ab1ecb1f6d651d57b01.png";
-import img07Ces1 from "figma:asset/2bb8e73a2052ae79fe9c7e6c3c269da063403800.png";
-import img05KarpHolo1 from "figma:asset/89a7725044543d01ba114f3c97289aa8a7f27626.png";
-import imgRectangle4 from "figma:asset/2c1ac18706b11fdc388c5c050b6f11cea4308374.png";
+import imgGeminiGeneratedImageFco6Fjfco6Fjfco61 from "figma:asset/4125efcb87214d63a7c5ebc60d3e899d2a812e8d.webp";
+import img03Kan1 from "figma:asset/4d90e00b7580436518b22cd8b29dbde6466bcb63.webp";
+import img02Acz1 from "figma:asset/b84fb334be93df64d75c215b19d5f9d6f2d5bfc6.webp";
+import img09Pul1 from "figma:asset/f19669c960f98bb05b3b8252f49f44887097b6f5.webp";
+import img04Pca1 from "figma:asset/95b807f0a6629a8473d0a5fcd0968a90a760a70d.webp";
+import img01Sav1 from "figma:asset/15b4d3c8465ba8cb06f709e0a2f92eb5ef85f967.webp";
+import img08Bok1 from "figma:asset/47f6a42dd35ec0d7e51104829607d960649b2b83.webp";
+import img10Ama1 from "figma:asset/5fa781cdc9c23f0e22fd5ab1ecb1f6d651d57b01.webp";
+import img07Ces1 from "figma:asset/2bb8e73a2052ae79fe9c7e6c3c269da063403800.webp";
+import img05KarpHolo1 from "figma:asset/89a7725044543d01ba114f3c97289aa8a7f27626.webp";
+import imgRectangle4 from "figma:asset/2c1ac18706b11fdc388c5c050b6f11cea4308374.webp";
 
 function Group1() {
   return (
