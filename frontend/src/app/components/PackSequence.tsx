@@ -31,6 +31,20 @@ export function PackSequence({ progress, className, style }: Props) {
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
+    // --- perf log state ---
+    const t0 = performance.now();
+    const sizes = new Array<number>(FRAME_COUNT).fill(0);
+    let loadedCount = 0;
+    let bytesTotal = 0;
+    let eagerLoggedAt = 0;
+    let firstPaintAt = 0;
+    let summaryLogged = false;
+
+    const fmtBytes = (n: number) =>
+      n >= 1024 * 1024 ? (n / 1048576).toFixed(2) + " MB"
+        : n >= 1024 ? (n / 1024).toFixed(1) + " KB"
+        : n + " B";
+
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     const sizeCanvas = () => {
       const rect = canvas.getBoundingClientRect();
@@ -59,19 +73,50 @@ export function PackSequence({ progress, className, style }: Props) {
       const w = img.width * ratio, h = img.height * ratio;
       ctx.drawImage(img, (cw - w) / 2, (ch - h) / 2, w, h);
       currentFrameRef.current = idx;
+      if (!firstPaintAt) {
+        firstPaintAt = performance.now();
+        console.log(
+          `%c[PackSequence] first paint`,
+          "color:#e63329;font-weight:bold",
+          `frame ${pick}, ${(firstPaintAt - t0).toFixed(0)}ms after init`
+        );
+      }
     };
 
     const loadFrame = async (i: number) => {
       if (cancelled) return;
       if (imagesRef.current[i] || inflightRef.current[i]) return;
       inflightRef.current[i] = true;
+      const tStart = performance.now();
       try {
         const res = await fetch(framePath(i));
         const blob = await res.blob();
         const bmp = await createImageBitmap(blob);
         if (cancelled) { bmp.close?.(); return; }
         imagesRef.current[i] = bmp;
+        loadedCount += 1;
+        sizes[i] = blob.size;
+        bytesTotal += blob.size;
+        const ms = (performance.now() - tStart).toFixed(0);
+        console.log(
+          `[PackSequence] ${String(i).padStart(3, "0")}/${FRAME_COUNT - 1}  ` +
+          `${fmtBytes(blob.size).padStart(9)}  ${ms.padStart(4)}ms  ` +
+          `(${loadedCount}/${FRAME_COUNT}, total ${fmtBytes(bytesTotal)})`
+        );
         if (Math.abs(i - currentFrameRef.current) <= 1) draw(currentFrameRef.current);
+        if (loadedCount === FRAME_COUNT && !summaryLogged) {
+          summaryLogged = true;
+          const dt = (performance.now() - t0) / 1000;
+          console.log(
+            `%c[PackSequence] sequence fully loaded`,
+            "color:#e63329;font-weight:bold",
+            `\n  frames:     ${FRAME_COUNT}` +
+            `\n  bandwidth:  ${fmtBytes(bytesTotal)}` +
+            `\n  avg/frame:  ${fmtBytes(bytesTotal / FRAME_COUNT)}` +
+            `\n  elapsed:    ${dt.toFixed(2)}s` +
+            `\n  throughput: ${fmtBytes(bytesTotal / dt)}/s`
+          );
+        }
       } catch (err) {
         inflightRef.current[i] = false;
         console.warn(`[PackSequence] frame ${i} failed`, err);
@@ -111,11 +156,22 @@ export function PackSequence({ progress, className, style }: Props) {
 
     // Eager phase
     (async () => {
+      console.log(
+        `%c[PackSequence] eager phase starting`,
+        "color:#e63329;font-weight:bold",
+        `${EAGER_COUNT}/${FRAME_COUNT} frames, base=${BASE}`
+      );
       const tasks: Promise<void>[] = [];
       for (let i = 0; i < EAGER_COUNT; i++) tasks.push(loadFrame(i));
       await Promise.all(tasks);
       if (cancelled) return;
       eagerDoneRef.current = true;
+      eagerLoggedAt = performance.now();
+      console.log(
+        `%c[PackSequence] eager phase done`,
+        "color:#e63329;font-weight:bold",
+        `${EAGER_COUNT} frames, ${fmtBytes(bytesTotal)}, ${((eagerLoggedAt - t0) / 1000).toFixed(2)}s`
+      );
       scheduleBackgroundFill();
     })();
 
